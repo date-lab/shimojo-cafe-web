@@ -171,6 +171,28 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, terminalId: TERMINAL_ID });
 });
 
+/** Slack 在庫Botなど: GET のみ・ヘッダー不要。INVENTORY_API_BASE_URL にフルURLで指定（例: http://127.0.0.1:8787/api/inventory） */
+app.get("/api/inventory", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  const rows = listStockAlerts(db);
+  res.type("application/json");
+  res.json({
+    generatedAt: new Date().toISOString(),
+    terminalId: TERMINAL_ID,
+    items: rows.map((it) => ({
+      itemId: it.itemId,
+      itemCode: it.itemCode,
+      name: it.name,
+      stock: it.stock,
+      isActive: it.isActive,
+      category: it.category,
+      isAlerting: it.isAlerting,
+      alertThreshold: it.alertThreshold,
+      alertCondition: it.alertCondition,
+    })),
+  });
+});
+
 app.get("/api/settings", (_req, res) => {
   res.json({
     paypayInstruction: getSetting(db, "paypay_instruction") ?? "",

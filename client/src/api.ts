@@ -63,12 +63,12 @@ export type PurchaseDetail = {
 const adminFetch = (input: string, init?: RequestInit) =>
   fetch(input, { ...init, credentials: "include" });
 
-export async function adminLogin(password: string) {
+export async function adminLogin(user: string, pass: string) {
   return json<{ ok: boolean }>(
     adminFetch("/api/admin/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ user, pass }),
     })
   );
 }

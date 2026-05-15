@@ -28,11 +28,15 @@ export function isValidSession(token: string | undefined): boolean {
 
 const COOKIE = "shimojo_admin";
 
+const ADMIN_LOGIN_USER = "admin";
+
 export function adminLoginHandler(getPassword: () => string | undefined) {
   return (req: Request, res: Response) => {
-    const pw = (req.body as { password?: string })?.password;
+    const body = req.body as { user?: string; pass?: string };
+    const user = String(body.user ?? "").trim();
+    const pass = String(body.pass ?? "");
     const expected = getPassword();
-    if (!expected || pw !== expected) {
+    if (!expected || user !== ADMIN_LOGIN_USER || pass !== expected) {
       res.status(401).json({ error: "UNAUTHORIZED" });
       return;
     }

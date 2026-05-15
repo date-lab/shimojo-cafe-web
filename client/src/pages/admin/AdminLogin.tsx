@@ -3,7 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { adminLogin } from "../../api";
 
 export function AdminLogin() {
-  const [password, setPassword] = useState("");
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -11,10 +12,10 @@ export function AdminLogin() {
     e.preventDefault();
     setError(null);
     try {
-      await adminLogin(password);
+      await adminLogin(user.trim(), pass);
       navigate("/admin/items", { replace: true });
     } catch {
-      setError("パスワードが違います");
+      setError("ユーザー名またはパスワードが違います");
     }
   };
 
@@ -25,12 +26,26 @@ export function AdminLogin() {
       </header>
       <form className="admin-form" onSubmit={(e) => void onSubmit(e)}>
         <label>
+          ユーザー名
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            inputMode="text"
+            spellCheck={false}
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            className="input"
+          />
+        </label>
+        <label>
           パスワード
           <input
             type="password"
+            name="password"
             autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
             className="input"
           />
         </label>

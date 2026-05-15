@@ -107,6 +107,25 @@ a {
   box-sizing: border-box;
 }
 
+.shop-flow-step-btn {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.shop-flow-step-btn:disabled {
+  opacity: 0.65;
+}
+
 .shop-flow-step-num {
   display: inline-flex;
   align-items: center;
@@ -152,6 +171,10 @@ a {
   content: none;
 }
 
+.shop-flow-step[data-state="upcoming"] .shop-flow-step-btn {
+  color: #666;
+}
+
 .shop-flow-step[data-state="current"] {
   border-color: var(--accent);
   background: #f5ead8;
@@ -189,7 +212,26 @@ a {
 }
 
 button.shop-header-link {
-  cursor: default;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.shop-language-switch {
+  min-height: 2rem;
+}
+
+.shop-admin-entry {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.shop-admin-link {
+  font-size: 0.78rem;
+  color: #7a7368;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0.1rem 0.25rem;
 }
 
 .shop-scroll {
@@ -1740,6 +1782,29 @@ textarea.input {
   flex-direction: column;
 }
 
+.shop-checkout-buyer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.shop-checkout-buyer-head h2 {
+  margin: 0;
+}
+
+.shop-checkout-buyer-head .btn {
+  min-height: 42px;
+  font-size: 0.95rem;
+  padding: 0.5rem 0.8rem;
+}
+
+.shop-checkout-buyer-head .btn.selected-anonymous {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(107, 79, 42, 0.2);
+}
+
 .shop-buyer-scroll {
   min-height: 0;
   overflow-y: auto;
@@ -1757,6 +1822,56 @@ textarea.input {
 
 .shop-checkout-payment .instruction-body {
   overflow: visible;
+}
+
+.checkout-panel-dimmed {
+  opacity: 0.56;
+  filter: saturate(0.86);
+}
+
+.checkout-panel-focus {
+  opacity: 1;
+  filter: saturate(1);
+  position: relative;
+  isolation: isolate;
+}
+
+.shop-products-panel,
+.shop-cart-panel,
+.shop-checkout-payment {
+  transition: opacity 180ms ease, filter 180ms ease, box-shadow 180ms ease;
+}
+
+.shop-checkout-payment.checkout-panel-focus,
+.shop-cart-panel.checkout-panel-focus {
+  box-shadow: 0 0 0 2px rgba(107, 79, 42, 0.24), 0 1px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* iPadでも伝わる「次アクション」枠 */
+.checkout-panel-focus::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 10px;
+  border: 2px solid rgba(107, 79, 42, 0.42);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.52),
+    0 0 0 6px rgba(107, 79, 42, 0.08);
+  pointer-events: none;
+  z-index: 3;
+  animation: focus-frame-glide 1400ms ease-in-out infinite;
+}
+
+@keyframes focus-frame-glide {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate(0, -2px);
+    opacity: 1;
+  }
 }
 
 .shop-checkout-actions {
@@ -2194,4 +2309,370 @@ textarea.input {
     height: 84px;
     font-size: 2.1rem;
   }
+}
+
+/* --- About / Intro static pages --- */
+
+.about-doc-page {
+  max-width: 720px;
+  padding-bottom: 3rem;
+}
+
+.about-doc-header {
+  margin-bottom: 1.5rem;
+}
+
+.about-doc-back {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.about-doc-header h1 {
+  font-size: 1.85rem;
+  margin: 0 0 0.5rem;
+  color: #2a2218;
+}
+
+.about-doc-lead {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.about-doc-toc {
+  background: var(--surface);
+  border: 1px solid #e0d8cc;
+  border-radius: 14px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.about-doc-toc-title {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #666;
+  margin: 0 0 0.6rem;
+}
+
+.about-doc-toc ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.7;
+}
+
+.about-doc-toc a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.about-doc-section {
+  scroll-margin-top: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #e5dfd4;
+}
+
+.about-doc-section:last-of-type {
+  border-bottom: none;
+}
+
+.about-doc-section h2 {
+  font-size: 1.25rem;
+  margin: 0 0 0.75rem;
+  color: #2f261c;
+}
+
+.about-doc-h3 {
+  font-size: 1.05rem;
+  margin: 1.25rem 0 0.5rem;
+  color: #3d3328;
+}
+
+.about-doc-body p {
+  margin: 0 0 0.75rem;
+  line-height: 1.65;
+  color: #333;
+}
+
+.about-doc-list,
+.about-doc-checklist {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.65;
+  color: #333;
+}
+
+.about-doc-checklist li {
+  margin-bottom: 0.45rem;
+}
+
+.about-doc-dl {
+  margin: 0;
+}
+
+.about-doc-dl dt {
+  font-weight: 700;
+  color: #2f261c;
+  margin-top: 0.85rem;
+}
+
+.about-doc-dl dt:first-child {
+  margin-top: 0;
+}
+
+.about-doc-dl dd {
+  margin: 0.35rem 0 0;
+  padding-left: 0;
+  line-height: 1.6;
+  color: #444;
+}
+
+.about-doc-note {
+  background: #faf6ef;
+  border-left: 4px solid var(--accent-light);
+  padding: 0.65rem 0.85rem;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+}
+
+.about-doc-code {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+  font-size: 0.88em;
+  background: #ede8e0;
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+}
+
+.about-doc-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.about-doc-links a {
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.about-doc-footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5dfd4;
+}
+
+/* Intro one-pager poster */
+.intro-poster {
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: #f7f0e4;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Hiragino Mincho Pro", "Noto Serif JP", serif;
+}
+
+.intro-poster-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 80% at 10% 20%, rgba(201, 166, 107, 0.35) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 70% at 90% 80%, rgba(107, 79, 42, 0.45) 0%, transparent 50%),
+    linear-gradient(165deg, #1c1410 0%, #2d2118 42%, #1a1512 100%);
+  z-index: 0;
+}
+
+.intro-poster-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+  opacity: 1;
+  pointer-events: none;
+}
+
+.intro-poster-steam {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  transform: translateX(-180%);
+  z-index: 1;
+  display: flex;
+  gap: 0.5rem;
+  opacity: 0.5;
+}
+
+.intro-poster-steam span {
+  width: 6px;
+  height: 72px;
+  border-radius: 999px;
+  background: linear-gradient(to top, transparent, rgba(255, 255, 255, 0.15));
+  animation: intro-steam 3.2s ease-in-out infinite;
+}
+
+.intro-poster-steam span:nth-child(2) {
+  animation-delay: 0.5s;
+}
+
+.intro-poster-steam span:nth-child(3) {
+  animation-delay: 1s;
+}
+
+@keyframes intro-steam {
+  0%,
+  100% {
+    transform: translateY(8px) scaleY(0.85);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(-18px) scaleY(1.05);
+    opacity: 0.7;
+  }
+}
+
+.intro-poster-back,
+.intro-poster-help {
+  position: absolute;
+  top: 1rem;
+  z-index: 3;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f0e6d8;
+}
+
+.intro-poster-back {
+  left: 1rem;
+}
+
+.intro-poster-help {
+  right: 1rem;
+}
+
+.intro-poster-content {
+  position: relative;
+  z-index: 2;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 4rem 1.5rem 3rem;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.intro-poster-tagline {
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  margin: 0 0 1.25rem;
+  color: rgba(247, 240, 228, 0.55);
+}
+
+.intro-poster-title {
+  margin: 0;
+  line-height: 1.05;
+  font-weight: 600;
+  font-size: clamp(2.6rem, 10vw, 3.8rem);
+  letter-spacing: 0.02em;
+}
+
+.intro-poster-title-line {
+  display: block;
+}
+
+.intro-poster-title-line.accent {
+  color: var(--accent-light);
+  text-shadow: 0 0 40px rgba(201, 166, 107, 0.35);
+}
+
+.intro-poster-sub {
+  margin: 1.25rem 0 0;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: rgba(247, 240, 228, 0.72);
+}
+
+.intro-poster-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 2.75rem;
+  width: 100%;
+}
+
+@media (min-width: 520px) {
+  .intro-poster-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+}
+
+.intro-poster-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 1.1rem 0.85rem;
+  backdrop-filter: blur(6px);
+}
+
+.intro-poster-card-icon {
+  display: block;
+  font-size: 1.4rem;
+  margin-bottom: 0.35rem;
+  opacity: 0.85;
+  font-family: system-ui, sans-serif;
+}
+
+.intro-poster-card h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+
+.intro-poster-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: rgba(247, 240, 228, 0.75);
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+
+.intro-poster-footer {
+  margin-top: 2.5rem;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  color: rgba(247, 240, 228, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.intro-poster-deco {
+  width: 48px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent-light), transparent);
+  opacity: 0.6;
 }

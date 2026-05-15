@@ -148,7 +148,13 @@ function initSchema(db: Database.Database) {
   ensureColumn(db, "items", "alert_condition TEXT NOT NULL DEFAULT 'LTE'");
   ensureColumn(db, "items", "cost_price INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "items", "category TEXT NOT NULL DEFAULT 'OTHER'");
+  ensureColumn(db, "items", "item_code TEXT");
   ensureColumn(db, "buyers", "affiliation TEXT");
+  ensureColumn(db, "buyers", "buyer_code TEXT");
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_items_item_code_unique ON items(item_code) WHERE item_code IS NOT NULL`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_buyers_buyer_code_unique ON buyers(buyer_code) WHERE buyer_code IS NOT NULL`);
+  fillMissingNumericCodes(db, "items", "item_id", "item_code");
+  fillMissingNumericCodes(db, "buyers", "buyer_id", "buyer_code");
   db.exec(`
     UPDATE items
     SET cost_price = CAST(ROUND((price / 1.1) / 10.0, 0) * 10 AS INTEGER)
@@ -170,6 +176,51 @@ function initSchema(db: Database.Database) {
     SET image_url = REPLACE(image_url, '/IMG/items/', '/images/items/')
     WHERE image_url IS NOT NULL AND image_url LIKE '%/IMG/items/%'
   `);
+}
+
+function toFourDigitCode(num: number): string {
+  return String(num).padStart(4, "0");
+}
+
+function collectUsedCodes(db: Database.Database, table: "items" | "buyers", codeColumn: "item_code" | "buyer_code"): Set<string> {
+  const rows = db.prepare(`SELECT ${codeColumn} as code FROM ${table} WHERE ${codeColumn} IS NOT NULL`).all() as Array<{
+    code: unknown;
+  }>;
+  const used = new Set<string>();
+  for (const row of rows) {
+    const code = String(row.code ?? "").trim();
+    if (/^\d{4}$/.test(code)) {
+      used.add(code);
+    }
+  }
+  return used;
+}
+
+function nextFreeFourDigitCode(used: Set<string>): string {
+  for (let i = 1; i <= 9999; i += 1) {
+    const candidate = toFourDigitCode(i);
+    if (!used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+  }
+  throw new Error("NO_AVAILABLE_4DIGIT_CODE");
+}
+
+function fillMissingNumericCodes(
+  db: Database.Database,
+  table: "items" | "buyers",
+  idColumn: "item_id" | "buyer_id",
+  codeColumn: "item_code" | "buyer_code"
+) {
+  const used = collectUsedCodes(db, table, codeColumn);
+  const rows = db
+    .prepare(`SELECT ${idColumn} as id FROM ${table} WHERE ${codeColumn} IS NULL OR ${codeColumn} = '' ORDER BY rowid ASC`)
+    .all() as Array<{ id: string }>;
+  const update = db.prepare(`UPDATE ${table} SET ${codeColumn} = ? WHERE ${idColumn} = ?`);
+  for (const row of rows) {
+    update.run(nextFreeFourDigitCode(used), row.id);
+  }
 }
 
 function ensureColumn(db: Database.Database, table: string, columnDef: string) {
@@ -203,25 +254,32 @@ function seedIfEmpty(db: Database.Database) {
     };
   });
   const insItem = db.prepare(
-    `INSERT INTO items (item_id, name, cost_price, price, stock, is_active, image_url, display_order)
-     VALUES (?, ?, ?, ?, ?, 1, NULL, ?)`
+    `INSERT INTO items (item_id, item_code, name, cost_price, price, stock, is_active, image_url, display_order)
+     VALUES (?, ?, ?, ?, ?, ?, 1, NULL, ?)`
   );
   for (const it of items) {
     const sellPrice = Math.round((it.costPrice * 1.1) / 10) * 10;
-    insItem.run(nanoid(), it.name, it.costPrice, sellPrice, it.stock, it.order);
+    const itemId = nanoid();
+    const itemCode = toFourDigitCode(it.order);
+    insItem.run(itemId, itemCode, it.name, it.costPrice, sellPrice, it.stock, it.order);
   }
 
   const buyers = Array.from({ length: 30 }, (_, idx) => ({
     name: `ダミーユーザ${String(idx + 1).padStart(2, "0")}`,
   }));
   const insBuyer = db.prepare(
-    `INSERT INTO buyers (buyer_id, name, photo_url, is_active) VALUES (?, ?, NULL, 1)`
+    `INSERT INTO buyers (buyer_id, buyer_code, name, photo_url, is_active) VALUES (?, ?, ?, NULL, 1)`
   );
-  for (const b of buyers) insBuyer.run(nanoid(), b.name);
+  for (const [idx, b] of buyers.entries()) {
+    const buyerId = nanoid();
+    const buyerCode = toFourDigitCode(idx + 1);
+    insBuyer.run(buyerId, buyerCode, b.name);
+  }
 }
 
 export type ItemRow = {
   itemId: string;
+  itemCode: string;
   name: string;
   costPrice: number;
   price: number;
@@ -237,6 +295,7 @@ export type ItemRow = {
 
 export type BuyerRow = {
   buyerId: string;
+  buyerCode: string;
   name: string;
   photoUrl: string | null;
   affiliation: string | null;
@@ -252,6 +311,7 @@ export type BuyerWeeklyUsageRow = {
 function normItem(r: Record<string, unknown>): ItemRow {
   return {
     itemId: String(r.itemId),
+    itemCode: String(r.itemCode),
     name: String(r.name),
     costPrice: Number(r.costPrice ?? 0),
     price: Number(r.price),
@@ -270,6 +330,7 @@ export function listItemsForSale(db: Database.Database): ItemRow[] {
   const rows = db
     .prepare(
       `SELECT item_id as itemId, name, cost_price as costPrice, price, stock,
+              item_code as itemCode,
               is_active as isActive, image_url as imageUrl, display_order as displayOrder,
               category,
               alert_enabled as alertEnabled, alert_threshold as alertThreshold, alert_condition as alertCondition
@@ -317,6 +378,7 @@ export function listAllItems(db: Database.Database): ItemRow[] {
   const rows = db
     .prepare(
       `SELECT item_id as itemId, name, cost_price as costPrice, price, stock,
+              item_code as itemCode,
               is_active as isActive, image_url as imageUrl, display_order as displayOrder,
               category,
               alert_enabled as alertEnabled, alert_threshold as alertThreshold, alert_condition as alertCondition
@@ -329,6 +391,7 @@ export function listAllItems(db: Database.Database): ItemRow[] {
 function normBuyer(r: Record<string, unknown>): BuyerRow {
   return {
     buyerId: String(r.buyerId),
+    buyerCode: String(r.buyerCode),
     name: String(r.name),
     photoUrl: r.photoUrl == null ? null : String(r.photoUrl),
     affiliation: r.affiliation == null ? null : String(r.affiliation),
@@ -339,7 +402,7 @@ function normBuyer(r: Record<string, unknown>): BuyerRow {
 export function listBuyersForSale(db: Database.Database): BuyerRow[] {
   const rows = db
     .prepare(
-      `SELECT buyer_id as buyerId, name, photo_url as photoUrl, is_active as isActive
+      `SELECT buyer_id as buyerId, buyer_code as buyerCode, name, photo_url as photoUrl, is_active as isActive
               ,affiliation as affiliation
        FROM buyers
        WHERE is_active = 1
@@ -365,7 +428,7 @@ export function listHeavyBuyersForSale(db: Database.Database, days: number = 7, 
   const from = new Date(Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000).toISOString();
   const rows = db
     .prepare(
-      `SELECT b.buyer_id as buyerId, b.name, b.photo_url as photoUrl, b.is_active as isActive
+      `SELECT b.buyer_id as buyerId, b.buyer_code as buyerCode, b.name, b.photo_url as photoUrl, b.is_active as isActive
               ,b.affiliation as affiliation
        FROM buyers b
        JOIN (
@@ -433,7 +496,7 @@ export function listBuyerUsageRollingDays(
 export function listAllBuyers(db: Database.Database): BuyerRow[] {
   const rows = db
     .prepare(
-      `SELECT buyer_id as buyerId, name, photo_url as photoUrl, is_active as isActive
+      `SELECT buyer_id as buyerId, buyer_code as buyerCode, name, photo_url as photoUrl, is_active as isActive
               ,affiliation as affiliation
        FROM buyers ORDER BY name ASC`
     )
@@ -560,10 +623,16 @@ export function upsertItem(
   const normalizedPrice = Number.isFinite(Number(data.price))
     ? normalizePrice(Number(data.price))
     : calcSellPrice(normalizedCostPrice);
+  const usedCodes = collectUsedCodes(db, "items", "item_code");
+  const existing = db
+    .prepare(`SELECT item_code as itemCode FROM items WHERE item_id = ? LIMIT 1`)
+    .get(id) as { itemCode?: string | null } | undefined;
+  const itemCode = existing?.itemCode && /^\d{4}$/.test(existing.itemCode) ? existing.itemCode : nextFreeFourDigitCode(usedCodes);
   db.prepare(
-    `INSERT INTO items (item_id, name, cost_price, price, stock, is_active, image_url, display_order, category, alert_enabled, alert_threshold, alert_condition)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO items (item_id, item_code, name, cost_price, price, stock, is_active, image_url, display_order, category, alert_enabled, alert_threshold, alert_condition)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(item_id) DO UPDATE SET
+      item_code = excluded.item_code,
        name = excluded.name,
        cost_price = excluded.cost_price,
        price = excluded.price,
@@ -577,6 +646,7 @@ export function upsertItem(
        alert_condition = excluded.alert_condition`
   ).run(
     id,
+    itemCode,
     data.name,
     normalizedCostPrice,
     normalizedPrice,
@@ -619,15 +689,22 @@ export function upsertBuyer(
     .prepare(`SELECT buyer_id as buyerId FROM buyers WHERE name = ? AND buyer_id <> ? LIMIT 1`)
     .get(normalizedName, id) as { buyerId: string } | undefined;
   if (dup) throw new Error("DUPLICATE_BUYER_NAME");
+  const usedCodes = collectUsedCodes(db, "buyers", "buyer_code");
+  const existing = db
+    .prepare(`SELECT buyer_code as buyerCode FROM buyers WHERE buyer_id = ? LIMIT 1`)
+    .get(id) as { buyerCode?: string | null } | undefined;
+  const buyerCode =
+    existing?.buyerCode && /^\d{4}$/.test(existing.buyerCode) ? existing.buyerCode : nextFreeFourDigitCode(usedCodes);
   db.prepare(
-    `INSERT INTO buyers (buyer_id, name, photo_url, affiliation, is_active)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO buyers (buyer_id, buyer_code, name, photo_url, affiliation, is_active)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(buyer_id) DO UPDATE SET
+      buyer_code = excluded.buyer_code,
        name = excluded.name,
        photo_url = excluded.photo_url,
        affiliation = excluded.affiliation,
        is_active = excluded.is_active`
-  ).run(id, normalizedName, data.photoUrl, data.affiliation ?? null, data.isActive ? 1 : 0);
+  ).run(id, buyerCode, normalizedName, data.photoUrl, data.affiliation ?? null, data.isActive ? 1 : 0);
   return id;
 }
 

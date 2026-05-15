@@ -138,6 +138,72 @@ async function copyText(text: string): Promise<boolean> {
   return ok;
 }
 
+function formatNotificationTimestamp(date: Date): string {
+  const formatter = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}/${get("month")}/${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
+function buildStockNotificationText(
+  title: string,
+  icon: string,
+  lines: string[],
+  now: Date
+): string {
+  return `【${title} ${icon}】\n${lines.join("\n")}\n\n時刻: ${formatNotificationTimestamp(now)}`;
+}
+
+function buildSlackNotificationTexts(
+  changedRows: { base: Item; next: Item }[],
+  newItem: Item | null,
+  payloadLength: number
+): string[] {
+  const priceChanges = changedRows
+    .filter(({ base, next }) => next.price !== base.price)
+    .map(({ base, next }) => `・${next.name}: ¥${base.price}→¥${next.price}`);
+  const stockDecreases = changedRows
+    .filter(({ base, next }) => next.stock < base.stock)
+    .map(({ base, next }) => `・${next.name}: ${next.stock - base.stock}（${base.stock}→${next.stock}）`);
+  const stockIncreases = changedRows
+    .filter(({ base, next }) => next.stock > base.stock)
+    .map(({ base, next }) => `・${next.name}: +${next.stock - base.stock}（${base.stock}→${next.stock}）`);
+  const newItemLines = newItem ? [`・${newItem.name}（¥${newItem.price} / 在庫${newItem.stock}）`] : [];
+  const now = new Date();
+  const notifications: string[] = [];
+
+  if (stockDecreases.length > 0) {
+    notifications.push(buildStockNotificationText("入荷通知", ":truck:", stockDecreases, now));
+  }
+  if (newItemLines.length > 0) {
+    notifications.push(buildStockNotificationText("新商品入荷", ":sparkles:", newItemLines, now));
+  }
+  if (priceChanges.length > 0) {
+    notifications.push(buildStockNotificationText("値段変更のお知らせ", ":money_with_wings:", priceChanges, now));
+  }
+  if (stockIncreases.length > 0) {
+    notifications.push(buildStockNotificationText("入荷通知", ":truck:", stockIncreases, now));
+  }
+  if (notifications.length === 0) {
+    notifications.push(`商品情報を更新しました（更新件数: ${payloadLength}）`);
+  }
+  return notifications;
+}
+
+type SlackSavePreview = {
+  payload: CsvRow[];
+  notifications: string[];
+};
+
 export function AdminItems() {
   const [items, setItems] = useState<Item[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Item>>({});
@@ -150,7 +216,9 @@ export function AdminItems() {
   const [csvText, setCsvText] = useState("");
   const [csvPanelOpen, setCsvPanelOpen] = useState(false);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
-  const [notifySlackOnSave, setNotifySlackOnSave] = useState(false);
+  const [notifySlackOnSave, setNotifySlackOnSave] = useState(true);
+  const [slackSavePreview, setSlackSavePreview] = useState<SlackSavePreview | null>(null);
+  const [slackPreviewSending, setSlackPreviewSending] = useState(false);
   const calcSellPrice = (costPrice: number) => Math.max(0, Math.round((costPrice * 1.1) / 10) * 10);
   const calcSellSliderMax = (costPrice: number) => Math.max(100, Math.ceil((Math.max(costPrice, 0) * 2) / 10) * 10);
   const imageListId = "admin-item-image-list";
@@ -236,21 +304,21 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
       const changedRows = items
         .map((it) => ({ base: it, next: drafts[it.itemId] ?? it }))
         .filter(({ base, next }) => hasItemChanged(base, next))
-        .map(({ next }) => next);
+        .map(({ base, next }) => ({ base, next }));
 
-      const payload: CsvRow[] = changedRows.map((row) => ({
-        itemId: row.itemId,
-        name: row.name,
-        costPrice: row.costPrice,
-        price: row.price,
-        stock: row.stock,
-        isActive: row.isActive,
-        imageUrl: row.imageUrl,
-        displayOrder: row.displayOrder,
-        category: row.category ?? "OTHER",
-        alertEnabled: row.alertEnabled,
-        alertThreshold: row.alertThreshold,
-        alertCondition: row.alertCondition,
+      const payload: CsvRow[] = changedRows.map(({ next }) => ({
+        itemId: next.itemId,
+        name: next.name,
+        costPrice: next.costPrice,
+        price: next.price,
+        stock: next.stock,
+        isActive: next.isActive,
+        imageUrl: next.imageUrl,
+        displayOrder: next.displayOrder,
+        category: next.category ?? "OTHER",
+        alertEnabled: next.alertEnabled,
+        alertThreshold: next.alertThreshold,
+        alertCondition: next.alertCondition,
       }));
       if (newItem) {
         payload.push({
@@ -271,24 +339,51 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
         setNotice("変更はありません");
         return;
       }
-      await adminBulkUpsertItems(payload);
       if (notifySlackOnSave) {
-        try {
-          await adminSendAllNotification(`商品情報を更新しました（更新件数: ${payload.length}）`);
-          setNotice(`${payload.length} 件を保存しました（Slack通知送信済み）`);
-        } catch {
-          setNotice(`${payload.length} 件を保存しました`);
-          setError("保存は完了しましたが、Slack通知の送信に失敗しました");
-        }
-      } else {
-        setNotice(`${payload.length} 件を保存しました`);
+        const notifications = buildSlackNotificationTexts(changedRows, newItem, payload.length);
+        setSlackSavePreview({ payload, notifications });
+        return;
       }
+      await adminBulkUpsertItems(payload);
+      setNotice(`${payload.length} 件を保存しました`);
       setNewItem(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "一括保存に失敗しました");
     } finally {
       setSavingAll(false);
+    }
+  };
+
+  const cancelSlackSavePreview = () => {
+    if (slackPreviewSending) return;
+    setSlackSavePreview(null);
+    setNotice("Slack通知を送らずに閉じました（商品はまだ保存されていません）");
+  };
+
+  const confirmSlackPreviewAndSave = async () => {
+    if (!slackSavePreview) return;
+    setError(null);
+    setNotice(null);
+    setSlackPreviewSending(true);
+    try {
+      await adminBulkUpsertItems(slackSavePreview.payload);
+      try {
+        for (const text of slackSavePreview.notifications) {
+          await adminSendAllNotification(text);
+        }
+        setNotice(`${slackSavePreview.payload.length} 件を保存しました（Slack通知送信済み）`);
+      } catch {
+        setNotice(`${slackSavePreview.payload.length} 件を保存しました`);
+        setError("保存は完了しましたが、Slack通知の送信に失敗しました");
+      }
+      setSlackSavePreview(null);
+      setNewItem(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "一括保存に失敗しました");
+    } finally {
+      setSlackPreviewSending(false);
     }
   };
 
@@ -381,7 +476,12 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
         >
           新規追加
         </button>
-        <button type="button" className="btn primary" disabled={savingAll} onClick={() => void saveAllRows()}>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={savingAll || slackPreviewSending || slackSavePreview !== null}
+          onClick={() => void saveAllRows()}
+        >
           変更を一括保存
         </button>
         <button type="button" className="btn secondary" onClick={() => setCsvPanelOpen((prev) => !prev)}>
@@ -720,6 +820,46 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
           <option key={url} value={url} />
         ))}
       </datalist>
+
+      {slackSavePreview && (
+        <div className="modal" onClick={() => cancelSlackSavePreview()}>
+          <div className="admin-form wide" onClick={(e) => e.stopPropagation()}>
+            <h2>Slack通知の確認</h2>
+            <p className="muted">
+              Slack通知プレビューです。「実行」で保存と通知を実行します。
+            </p>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.75rem",
+                maxHeight: "min(60vh, 480px)",
+                overflowY: "auto",
+                margin: "0.75rem 0",
+              }}
+            >
+              {slackSavePreview.notifications.map((text, idx) => (
+                <div key={idx}>
+                  <div className="small muted">
+                    投稿 {idx + 1} / {slackSavePreview.notifications.length}
+                  </div>
+                  <pre className="admin-help-prompt" style={{ marginTop: "0.35rem" }}>
+                    {text}
+                  </pre>
+                </div>
+              ))}
+            </div>
+            <div className="row-actions">
+              <button type="button" className="btn secondary" disabled={slackPreviewSending} onClick={() => cancelSlackSavePreview()}>
+                キャンセル
+              </button>
+              <button type="button" className="btn primary" disabled={slackPreviewSending} onClick={() => void confirmSlackPreviewAndSave()}>
+                {slackPreviewSending ? "送信中..." : "実行"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {helpOpen && (
         <div className="modal" onClick={() => setHelpOpen(false)}>
