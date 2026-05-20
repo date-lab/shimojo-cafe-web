@@ -84,15 +84,11 @@ export function AdminMonitor() {
   );
   const currentHolding = useMemo(() => totalRevenue - inventoryPotential, [totalRevenue, inventoryPotential]);
   const cashflowSeries = useMemo(() => {
-    let cumulativeSales = 0;
     const base = -inventoryPotential;
-    const points = timeline.map((p) => {
-      cumulativeSales += p.purchaseTotal;
-      return {
-        ...p,
-        balance: base + cumulativeSales,
-      };
-    });
+    const points = timeline.reduce<Array<(typeof timeline)[number] & { balance: number }>>((acc, p) => {
+      const previousBalance = acc.length > 0 ? acc[acc.length - 1].balance : base;
+      return [...acc, { ...p, balance: previousBalance + p.purchaseTotal }];
+    }, []);
     const latestBalance = points.length > 0 ? points[points.length - 1].balance : base;
     const soldOutTarget = latestBalance + inventoryPotential;
     return points.map((p) => ({ ...p, soldOutTarget, zeroLine: 0 }));

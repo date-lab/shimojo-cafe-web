@@ -1424,13 +1424,23 @@ button.shop-header-link {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .admin-image-url-input {
-  width: 100%;
+  flex: 1 1 180px;
+  width: auto;
   min-width: 180px;
   font-size: 0.88rem;
   padding: 0.42rem 0.55rem;
+}
+
+.admin-image-paste-button {
+  min-height: 34px;
+  padding: 0.38rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 .admin-item-image-preview {

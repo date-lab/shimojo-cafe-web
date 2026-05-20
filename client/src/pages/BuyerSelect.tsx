@@ -3,8 +3,8 @@ import { flushSync } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { fetchBuyers, fetchSettings, postPurchase, type PurchaseDetail } from "../api";
 import { groupBuyersByTag } from "../buyerGroups";
-import { useCart } from "../cart";
-import { useCheckout } from "../checkout";
+import { useCart } from "../useCart";
+import { useCheckout } from "../useCheckout";
 import { useIdleReset } from "../useIdleReset";
 import type { Buyer } from "../types";
 

@@ -1,7 +1,9 @@
 import { Suspense, lazy, useCallback, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { useCart, CartProvider } from "./cart";
-import { useCheckout, CheckoutProvider } from "./checkout";
+import { CartProvider } from "./cart";
+import { CheckoutProvider } from "./checkout";
+import { useCart } from "./useCart";
+import { useCheckout } from "./useCheckout";
 import type { ShopLanguage } from "./pages/Shop";
 
 const Shop = lazy(() => import("./pages/Shop").then((m) => ({ default: m.Shop })));

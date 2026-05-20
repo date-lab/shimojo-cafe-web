@@ -2,12 +2,67 @@ import { useEffect, useState } from "react";
 import {
   adminCancelPurchase,
   adminDeletePurchase,
+  adminPurchaseExportRows,
   adminPurchases,
   adminStats,
   type AdminStatsPreset,
 } from "../../api";
 
 const PAGE_SIZE = 20;
+
+type CsvValue = string | number | null | undefined;
+
+const statsPresetLabels: Record<AdminStatsPreset, string> = {
+  all: "全期間",
+  today: "今日（日本時間）",
+  "7": "直近7日",
+  "30": "直近30日",
+};
+
+function csvCell(value: CsvValue) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadCsv(filename: string, rows: CsvValue[][]) {
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function fileTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function formatDateTimeJst(value: string) {
+  return new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false });
+}
+
+function formatDateJst(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatTimeJst(value: string) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
 
 export function AdminHistory() {
   const [page, setPage] = useState(0);
@@ -20,6 +75,7 @@ export function AdminHistory() {
   const [statsPreset, setStatsPreset] = useState<AdminStatsPreset>("all");
   const [error, setError] = useState<string | null>(null);
   const [workingPurchaseId, setWorkingPurchaseId] = useState<string | null>(null);
+  const [exportingCsv, setExportingCsv] = useState<"history" | "stats" | null>(null);
 
   const statsPeriodCaption = (() => {
     switch (statsPreset) {
@@ -89,6 +145,107 @@ export function AdminHistory() {
     }
   };
 
+  const exportHistoryCsv = async () => {
+    setError(null);
+    setExportingCsv("history");
+    try {
+      const { rows: exportRows } = await adminPurchaseExportRows();
+
+      const rows: CsvValue[][] = [
+        [
+          "購入ID",
+          "購入明細ID",
+          "購入日時(日本時間)",
+          "購入日(日本時間)",
+          "購入時刻(日本時間)",
+          "購入日時(ISO)",
+          "状態",
+          "支払方法",
+          "端末ID",
+          "購入合計",
+          "購入者種別",
+          "購入者ID",
+          "購入者コード",
+          "購入者名",
+          "購入者所属",
+          "購入者表示中",
+          "商品ID",
+          "商品コード",
+          "商品名",
+          "商品カテゴリ",
+          "数量",
+          "購入時単価",
+          "小計",
+          "商品現在価格",
+          "商品原価",
+          "商品現在在庫",
+          "商品表示中",
+        ],
+      ];
+
+      for (const row of exportRows) {
+        rows.push([
+          row.purchaseId,
+          row.purchaseItemId,
+          formatDateTimeJst(row.purchasedAt),
+          formatDateJst(row.purchasedAt),
+          formatTimeJst(row.purchasedAt),
+          row.purchasedAt,
+          row.status === "CANCELED" ? "キャンセル済み" : "完了",
+          row.paymentMethod,
+          row.terminalId,
+          row.totalPrice,
+          row.buyerType === "ANONYMOUS" ? "匿名" : "記名",
+          row.buyerId,
+          row.buyerCode,
+          row.buyerName,
+          row.buyerAffiliation,
+          row.buyerIsActive == null ? "" : row.buyerIsActive ? "表示" : "非表示",
+          row.itemId,
+          row.itemCode,
+          row.itemName,
+          row.itemCategory,
+          row.quantity,
+          row.unitPrice,
+          row.subtotal,
+          row.itemCurrentPrice,
+          row.itemCostPrice,
+          row.itemStock,
+          row.itemIsActive == null ? "" : row.itemIsActive ? "表示" : "非表示",
+        ]);
+      }
+
+      downloadCsv(`purchase-history-${fileTimestamp()}.csv`, rows);
+    } catch {
+      setError("購入履歴CSVの出力に失敗しました");
+    } finally {
+      setExportingCsv(null);
+    }
+  };
+
+  const exportStatsCsv = () => {
+    if (!stats) return;
+    setError(null);
+    setExportingCsv("stats");
+    try {
+      const rows: CsvValue[][] = [
+        ["集計期間", statsPresetLabels[statsPreset]],
+        [],
+        ["区分", "項目", "商品ID", "商品名", "値"],
+        ["サマリー", "PayPay 件数", "", "", stats.byPayment.PAYPAY],
+        ["サマリー", "現金 件数", "", "", stats.byPayment.CASH],
+        ["サマリー", "記名", "", "", stats.namedCount],
+        ["サマリー", "匿名", "", "", stats.anonymousCount],
+        ...stats.byItem.map((item): CsvValue[] => ["商品別販売数", "販売数", item.itemId, item.name, item.quantity]),
+      ];
+      downloadCsv(`purchase-stats-${statsPreset}-${fileTimestamp()}.csv`, rows);
+    } catch {
+      setError("集計CSVの出力に失敗しました");
+    } finally {
+      setExportingCsv(null);
+    }
+  };
+
   return (
     <div className="admin-page">
       <h1>履歴・集計</h1>
@@ -113,6 +270,14 @@ export function AdminHistory() {
                 <option value="30">直近30日</option>
               </select>
             </label>
+            <button
+              type="button"
+              className="btn secondary small"
+              disabled={exportingCsv !== null}
+              onClick={exportStatsCsv}
+            >
+              {exportingCsv === "stats" ? "CSV作成中…" : "集計CSV"}
+            </button>
           </div>
           <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
             {statsPeriodCaption}
@@ -149,6 +314,14 @@ export function AdminHistory() {
       <section>
         <h2>購入履歴</h2>
         <div className="row-actions single" style={{ marginTop: 0, marginBottom: 8 }}>
+          <button
+            type="button"
+            className="btn secondary small"
+            disabled={exportingCsv !== null || total === 0}
+            onClick={() => void exportHistoryCsv()}
+          >
+            {exportingCsv === "history" ? "CSV作成中…" : "全履歴明細CSV"}
+          </button>
           <button type="button" className="btn secondary small" disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>
             新しい履歴
           </button>

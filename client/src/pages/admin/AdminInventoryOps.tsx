@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { adminCreateStockEvent, adminItems, adminSaveItem, adminStockAlerts, adminStockEvents } from "../../api";
 import type { StockEvent } from "../../api";
 import type { Item } from "../../types";
@@ -18,7 +18,7 @@ export function AdminInventoryOps() {
   const [note, setNote] = useState("");
   const [savingAlertItemId, setSavingAlertItemId] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setError(null);
     Promise.all([adminItems(), adminStockAlerts(), adminStockEvents(200)])
       .then(([i, a, e]) => {
@@ -36,14 +36,14 @@ export function AdminInventoryOps() {
           }
           return next;
         });
-        if (!itemId && i.items.length > 0) setItemId(i.items[0].itemId);
+        if (i.items.length > 0) setItemId((prev) => prev || i.items[0].itemId);
       })
       .catch(() => setError("読み込みに失敗しました"));
-  };
+  }, []);
 
   useEffect(() => {
-    load();
-  }, []);
+    void Promise.resolve().then(() => load());
+  }, [load]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

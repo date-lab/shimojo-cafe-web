@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminFeedbacks, adminItemFeedbacks, adminUpdateFeedbackStatus, type FeedbackMessage } from "../../api";
 
 export function AdminFeedback() {
@@ -9,7 +9,7 @@ export function AdminFeedback() {
   const [recent, setRecent] = useState<Awaited<ReturnType<typeof adminItemFeedbacks>>["recent"]>([]);
   const [messages, setMessages] = useState<FeedbackMessage[]>([]);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
     Promise.all([adminItemFeedbacks(days, 100), adminFeedbacks(200)])
@@ -20,11 +20,11 @@ export function AdminFeedback() {
       })
       .catch(() => setError("フィードバックデータの読み込みに失敗しました"))
       .finally(() => setLoading(false));
-  };
+  }, [days]);
 
   useEffect(() => {
-    load();
-  }, [days]);
+    void Promise.resolve().then(() => load());
+  }, [load]);
 
   const setMessageStatus = async (feedbackMessageId: string, status: "OPEN" | "DONE") => {
     setError(null);

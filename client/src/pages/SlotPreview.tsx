@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { isSlotHit } from "../wasm/slotWasm";
 
@@ -15,7 +15,7 @@ export function SlotPreview() {
   const resultTimerRef = useRef<number | null>(null);
   const spinningRef = useRef(false);
 
-  const stopAllTimers = () => {
+  const stopAllTimers = useCallback(() => {
     if (spinTimerRef.current) {
       window.clearInterval(spinTimerRef.current);
       spinTimerRef.current = null;
@@ -25,9 +25,9 @@ export function SlotPreview() {
       resultTimerRef.current = null;
     }
     spinningRef.current = false;
-  };
+  }, []);
 
-  const playSlot = async () => {
+  const playSlot = useCallback(async () => {
     if (spinningRef.current) return;
     spinningRef.current = true;
     const randomSeed = globalThis.crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
@@ -62,14 +62,15 @@ export function SlotPreview() {
       setSlotResultText(hit ? "おめでとう！当たりです！" : "残念、今回はハズレ！");
       spinningRef.current = false;
     }, 2100);
-  };
+  }, []);
 
   useEffect(() => {
-    void playSlot();
+    const startTimer = window.setTimeout(() => void playSlot(), 0);
     return () => {
+      window.clearTimeout(startTimer);
       stopAllTimers();
     };
-  }, []);
+  }, [playSlot, stopAllTimers]);
 
   return (
     <div className="page slot-preview-page">

@@ -85,6 +85,16 @@ export async function adminItemImages() {
   return json<{ images: string[] }>(adminFetch("/api/admin/item-images", { cache: "no-store" }));
 }
 
+export async function adminUploadItemImage(dataUrl: string, name: string) {
+  return json<{ imageUrl: string }>(
+    adminFetch("/api/admin/item-images", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataUrl, name }),
+    })
+  );
+}
+
 export async function adminSaveItem(
   item: Partial<Item> & {
     name: string;
@@ -178,6 +188,37 @@ export async function adminPurchases(limit: number = 20, offset: number = 0) {
   return json<{ purchases: PurchaseDetail[]; total: number; limit: number; offset: number }>(
     adminFetch(`/api/admin/purchases?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`)
   );
+}
+
+export type PurchaseExportRow = {
+  purchaseId: string;
+  purchaseItemId: string | null;
+  purchasedAt: string;
+  totalPrice: number;
+  paymentMethod: string;
+  buyerType: string;
+  buyerId: string | null;
+  buyerCode: string | null;
+  buyerName: string | null;
+  buyerAffiliation: string | null;
+  buyerIsActive: boolean | null;
+  terminalId: string;
+  status: string;
+  itemId: string | null;
+  itemCode: string | null;
+  itemName: string | null;
+  itemCategory: string | null;
+  itemCostPrice: number | null;
+  itemCurrentPrice: number | null;
+  itemStock: number | null;
+  itemIsActive: boolean | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  subtotal: number | null;
+};
+
+export async function adminPurchaseExportRows() {
+  return json<{ rows: PurchaseExportRow[] }>(adminFetch("/api/admin/purchases/export"));
 }
 
 export type AdminStatsPreset = "all" | "today" | "7" | "30";

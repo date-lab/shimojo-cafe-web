@@ -14,7 +14,10 @@ export function useIdleReset(
   const navigate = useNavigate();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onResetRef = useRef(onReset);
-  onResetRef.current = onReset;
+
+  useEffect(() => {
+    onResetRef.current = onReset;
+  }, [onReset]);
 
   useEffect(() => {
     if (!enabled) return;

@@ -12,8 +12,8 @@ import {
   type PurchaseDetail,
 } from "../api";
 import { groupBuyersByTag } from "../buyerGroups";
-import { useCart } from "../cart";
-import { useCheckout } from "../checkout";
+import { useCart } from "../useCart";
+import { useCheckout } from "../useCheckout";
 import { useIdleReset } from "../useIdleReset";
 import type { Buyer, CartLine, Item } from "../types";
 

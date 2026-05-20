@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { adminBulkUpsertItems, adminDeleteItem, adminItemImages, adminItems, adminSendAllNotification } from "../../api";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import {
+  adminBulkUpsertItems,
+  adminDeleteItem,
+  adminItemImages,
+  adminItems,
+  adminSendAllNotification,
+  adminUploadItemImage,
+} from "../../api";
 import type { Item } from "../../types";
 
 type CsvRow = {
@@ -138,6 +145,41 @@ async function copyText(text: string): Promise<boolean> {
   return ok;
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function readClipboardImageDataUrl(): Promise<string> {
+  if (typeof navigator === "undefined" || !navigator.clipboard || !("read" in navigator.clipboard)) {
+    throw new Error("このブラウザではクリップボード画像の読み取りに対応していません");
+  }
+
+  const clipboardItems = await navigator.clipboard.read();
+  for (const clipboardItem of clipboardItems) {
+    const imageType = clipboardItem.types.find((type) => type.startsWith("image/"));
+    if (!imageType) continue;
+    const blob = await clipboardItem.getType(imageType);
+    return blobToDataUrl(blob);
+  }
+
+  throw new Error("クリップボードに画像がありません");
+}
+
+function readPasteEventImageDataUrl(event: ClipboardEvent): Promise<string> {
+  const clipboardItems = Array.from(event.clipboardData?.items ?? []);
+  const imageItem = clipboardItems.find((item) => item.type.startsWith("image/"));
+  const imageFile = imageItem?.getAsFile();
+  if (!imageFile) {
+    throw new Error("貼り付け内容に画像がありません");
+  }
+  return blobToDataUrl(imageFile);
+}
+
 function formatNotificationTimestamp(date: Date): string {
   const formatter = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
@@ -165,7 +207,7 @@ function buildStockNotificationText(
 
 function buildSlackNotificationTexts(
   changedRows: { base: Item; next: Item }[],
-  newItem: Item | null,
+  newItems: Item[],
   payloadLength: number
 ): string[] {
   const priceChanges = changedRows
@@ -177,7 +219,7 @@ function buildSlackNotificationTexts(
   const stockIncreases = changedRows
     .filter(({ base, next }) => next.stock > base.stock)
     .map(({ base, next }) => `・${next.name}: +${next.stock - base.stock}（${base.stock}→${next.stock}）`);
-  const newItemLines = newItem ? [`・${newItem.name}（¥${newItem.price} / 在庫${newItem.stock}）`] : [];
+  const newItemLines = newItems.map((item) => `・${item.name}（¥${item.price} / 在庫${item.stock}）`);
   const now = new Date();
   const notifications: string[] = [];
 
@@ -204,11 +246,20 @@ type SlackSavePreview = {
   notifications: string[];
 };
 
+type AwaitingImagePaste = {
+  key: string;
+  name: string;
+};
+
+type NewItemDraft = Item & {
+  draftId: string;
+};
+
 export function AdminItems() {
   const [items, setItems] = useState<Item[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Item>>({});
   const [itemImages, setItemImages] = useState<string[]>([]);
-  const [newItem, setNewItem] = useState<Item | null>(null);
+  const [newItems, setNewItems] = useState<NewItemDraft[]>([]);
   const [savingAll, setSavingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -219,9 +270,26 @@ export function AdminItems() {
   const [notifySlackOnSave, setNotifySlackOnSave] = useState(true);
   const [slackSavePreview, setSlackSavePreview] = useState<SlackSavePreview | null>(null);
   const [slackPreviewSending, setSlackPreviewSending] = useState(false);
+  const [uploadingImageKey, setUploadingImageKey] = useState<string | null>(null);
+  const [awaitingImagePaste, setAwaitingImagePaste] = useState<AwaitingImagePaste | null>(null);
   const calcSellPrice = (costPrice: number) => Math.max(0, Math.round((costPrice * 1.1) / 10) * 10);
   const calcSellSliderMax = (costPrice: number) => Math.max(100, Math.ceil((Math.max(costPrice, 0) * 2) / 10) * 10);
   const imageListId = "admin-item-image-list";
+  const makeNewItemDraft = (displayOrder: number): NewItemDraft => ({
+    draftId: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    itemId: "",
+    name: "",
+    costPrice: 100,
+    price: calcSellPrice(100),
+    stock: 0,
+    isActive: true,
+    imageUrl: null,
+    displayOrder,
+    category: "OTHER",
+    alertEnabled: false,
+    alertThreshold: 3,
+    alertCondition: "LTE",
+  });
 
   const csvPrompt = `以下の条件で、UTF-8のCSVを出力してください。
 - 1行目はヘッダー
@@ -298,7 +366,7 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
     setNotice(null);
     setSavingAll(true);
     try {
-      if (newItem && newItem.name.trim().length === 0) {
+      if (newItems.some((item) => item.name.trim().length === 0)) {
         throw new Error("新規商品の名前を入力してください");
       }
       const changedRows = items
@@ -320,7 +388,7 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
         alertThreshold: next.alertThreshold,
         alertCondition: next.alertCondition,
       }));
-      if (newItem) {
+      for (const newItem of newItems) {
         payload.push({
           name: newItem.name,
           costPrice: newItem.costPrice,
@@ -340,13 +408,13 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
         return;
       }
       if (notifySlackOnSave) {
-        const notifications = buildSlackNotificationTexts(changedRows, newItem, payload.length);
+        const notifications = buildSlackNotificationTexts(changedRows, newItems, payload.length);
         setSlackSavePreview({ payload, notifications });
         return;
       }
       await adminBulkUpsertItems(payload);
       setNotice(`${payload.length} 件を保存しました`);
-      setNewItem(null);
+      setNewItems([]);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "一括保存に失敗しました");
@@ -378,7 +446,7 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
         setError("保存は完了しましたが、Slack通知の送信に失敗しました");
       }
       setSlackSavePreview(null);
-      setNewItem(null);
+      setNewItems([]);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "一括保存に失敗しました");
@@ -421,6 +489,89 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
     }
   };
 
+  const addItemImageUrl = useCallback((imageUrl: string) => {
+    setItemImages((prev) =>
+      prev.includes(imageUrl) ? prev : [...prev, imageUrl].sort((a, b) => a.localeCompare(b, "ja"))
+    );
+  }, []);
+
+  const applyItemImageUrl = useCallback(
+    (key: string, imageUrl: string) => {
+      if (key.startsWith("new-")) {
+        setNewItems((prev) => prev.map((item) => (item.draftId === key ? { ...item, imageUrl } : item)));
+        return;
+      }
+
+      const item = items.find((it) => it.itemId === key);
+      if (!item) return;
+      setDrafts((prev) => ({
+        ...prev,
+        [key]: { ...(prev[key] ?? item), imageUrl },
+      }));
+    },
+    [items]
+  );
+
+  const uploadItemImageDataUrl = useCallback(
+    async (key: string, name: string, dataUrl: string) => {
+      setError(null);
+      setNotice(null);
+      setAwaitingImagePaste(null);
+      setUploadingImageKey(key);
+      try {
+        const result = await adminUploadItemImage(dataUrl, name);
+        applyItemImageUrl(key, result.imageUrl);
+        addItemImageUrl(result.imageUrl);
+        setNotice("クリップボード画像をアップロードしました。保存すると商品に反映されます");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "クリップボード画像のアップロードに失敗しました";
+        setError(message);
+      } finally {
+        setUploadingImageKey(null);
+      }
+    },
+    [addItemImageUrl, applyItemImageUrl]
+  );
+
+  const pasteClipboardImage = async (key: string, name: string) => {
+    setError(null);
+    setNotice(null);
+    if (typeof navigator === "undefined" || !navigator.clipboard || !("read" in navigator.clipboard)) {
+      setAwaitingImagePaste({ key, name });
+      setNotice("画像貼付の待機中です。この画面でコピーした画像を貼り付けてください");
+      return;
+    }
+
+    setUploadingImageKey(key);
+    try {
+      const dataUrl = await readClipboardImageDataUrl();
+      await uploadItemImageDataUrl(key, name, dataUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "クリップボード画像のアップロードに失敗しました";
+      setError(message);
+    } finally {
+      setUploadingImageKey(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!awaitingImagePaste) return;
+
+    const onPaste = (event: ClipboardEvent) => {
+      event.preventDefault();
+      void readPasteEventImageDataUrl(event)
+        .then((dataUrl) => uploadItemImageDataUrl(awaitingImagePaste.key, awaitingImagePaste.name, dataUrl))
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : "貼り付け画像の読み取りに失敗しました";
+          setAwaitingImagePaste(null);
+          setError(message);
+        });
+    };
+
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [awaitingImagePaste, uploadItemImageDataUrl]);
+
   const deleteItemRow = async (item: Item) => {
     const ok = window.confirm(`「${item.name}」を削除します。よろしいですか？`);
     if (!ok) return;
@@ -458,20 +609,7 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
           type="button"
           className="btn primary"
           onClick={() => {
-            setNewItem({
-              itemId: "",
-              name: "",
-              costPrice: 100,
-              price: calcSellPrice(100),
-              stock: 0,
-              isActive: true,
-              imageUrl: null,
-              displayOrder: items.length,
-              category: "OTHER",
-              alertEnabled: false,
-              alertThreshold: 3,
-              alertCondition: "LTE",
-            });
+            setNewItems((prev) => [...prev, makeNewItemDraft(items.length + prev.length)]);
           }}
         >
           新規追加
@@ -553,13 +691,17 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
             </tr>
           </thead>
           <tbody>
-          {newItem && (
-            <tr key="new-item-row">
+          {newItems.map((newItem) => (
+            <tr key={newItem.draftId}>
               <td className="admin-col-name">
                 <input
                   className="input admin-name-input"
                   value={newItem.name}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                  onChange={(e) =>
+                    setNewItems((prev) =>
+                      prev.map((item) => (item.draftId === newItem.draftId ? { ...item, name: e.target.value } : item))
+                    )
+                  }
                 />
                 <div className="admin-item-image-row">
                   <input
@@ -567,8 +709,26 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                     list={imageListId}
                     value={newItem.imageUrl ?? ""}
                     placeholder="/images/items/xxx.png"
-                    onChange={(e) => setNewItem({ ...newItem, imageUrl: e.target.value || null })}
+                    onChange={(e) =>
+                      setNewItems((prev) =>
+                        prev.map((item) =>
+                          item.draftId === newItem.draftId ? { ...item, imageUrl: e.target.value || null } : item
+                        )
+                      )
+                    }
                   />
+                  <button
+                    type="button"
+                    className="btn secondary admin-image-paste-button"
+                    disabled={uploadingImageKey !== null}
+                    onClick={() => void pasteClipboardImage(newItem.draftId, newItem.name)}
+                  >
+                    {uploadingImageKey === newItem.draftId
+                      ? "貼り付け中..."
+                      : awaitingImagePaste?.key === newItem.draftId
+                        ? "Ctrl+V待ち"
+                        : "画像貼付"}
+                  </button>
                   {newItem.imageUrl ? (
                     <img className="admin-item-image-preview" src={newItem.imageUrl} alt={`${newItem.name || "新規商品"}画像`} />
                   ) : (
@@ -584,7 +744,13 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                   value={newItem.costPrice}
                   onChange={(e) => {
                     const nextCostPrice = Math.max(0, Number(e.target.value));
-                    setNewItem({ ...newItem, costPrice: nextCostPrice, price: calcSellPrice(nextCostPrice) });
+                    setNewItems((prev) =>
+                      prev.map((item) =>
+                        item.draftId === newItem.draftId
+                          ? { ...item, costPrice: nextCostPrice, price: calcSellPrice(nextCostPrice) }
+                          : item
+                      )
+                    );
                   }}
                 />
               </td>
@@ -597,7 +763,13 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                     max={calcSellSliderMax(newItem.costPrice)}
                     step={10}
                     value={newItem.price}
-                    onChange={(e) => setNewItem({ ...newItem, price: Math.max(0, Number(e.target.value)) })}
+                    onChange={(e) =>
+                      setNewItems((prev) =>
+                        prev.map((item) =>
+                          item.draftId === newItem.draftId ? { ...item, price: Math.max(0, Number(e.target.value)) } : item
+                        )
+                      )
+                    }
                   />
                 </div>
               </td>
@@ -607,14 +779,26 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                   type="number"
                   min={0}
                   value={newItem.stock}
-                  onChange={(e) => setNewItem({ ...newItem, stock: Math.max(0, Number(e.target.value)) })}
+                  onChange={(e) =>
+                    setNewItems((prev) =>
+                      prev.map((item) =>
+                        item.draftId === newItem.draftId ? { ...item, stock: Math.max(0, Number(e.target.value)) } : item
+                      )
+                    )
+                  }
                 />
               </td>
               <td>
                 <select
                   className="input"
                   value={newItem.category ?? "OTHER"}
-                  onChange={(e) => setNewItem({ ...newItem, category: e.target.value as ItemCategory })}
+                  onChange={(e) =>
+                    setNewItems((prev) =>
+                      prev.map((item) =>
+                        item.draftId === newItem.draftId ? { ...item, category: e.target.value as ItemCategory } : item
+                      )
+                    )
+                  }
                 >
                   {CATEGORY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -628,7 +812,13 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                   <input
                     type="checkbox"
                     checked={newItem.alertEnabled}
-                    onChange={(e) => setNewItem({ ...newItem, alertEnabled: e.target.checked })}
+                    onChange={(e) =>
+                      setNewItems((prev) =>
+                        prev.map((item) =>
+                          item.draftId === newItem.draftId ? { ...item, alertEnabled: e.target.checked } : item
+                        )
+                      )
+                    }
                   />
                   <span className="admin-switch-track" aria-hidden="true">
                     <span className="admin-switch-thumb" />
@@ -641,7 +831,11 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                   <input
                     type="checkbox"
                     checked={newItem.isActive}
-                    onChange={(e) => setNewItem({ ...newItem, isActive: e.target.checked })}
+                    onChange={(e) =>
+                      setNewItems((prev) =>
+                        prev.map((item) => (item.draftId === newItem.draftId ? { ...item, isActive: e.target.checked } : item))
+                      )
+                    }
                   />
                   <span className="admin-switch-track" aria-hidden="true">
                     <span className="admin-switch-thumb" />
@@ -650,10 +844,16 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                 </label>
               </td>
               <td>
-                <span className="muted small">未保存</span>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setNewItems((prev) => prev.filter((item) => item.draftId !== newItem.draftId))}
+                >
+                  取消
+                </button>
               </td>
             </tr>
-          )}
+          ))}
           {sortedItemsForView.map((it) => (
             <tr key={it.itemId}>
               <td className="admin-col-name">
@@ -680,6 +880,14 @@ itemId,name,price,stock,isActive,imageUrl,displayOrder,category`;
                       }))
                     }
                   />
+                  <button
+                    type="button"
+                    className="btn secondary admin-image-paste-button"
+                    disabled={uploadingImageKey !== null}
+                    onClick={() => void pasteClipboardImage(it.itemId, drafts[it.itemId]?.name ?? it.name)}
+                  >
+                    {uploadingImageKey === it.itemId ? "貼り付け中..." : awaitingImagePaste?.key === it.itemId ? "Ctrl+V待ち" : "画像貼付"}
+                  </button>
                   {(drafts[it.itemId]?.imageUrl ?? it.imageUrl) ? (
                     <img
                       className="admin-item-image-preview"

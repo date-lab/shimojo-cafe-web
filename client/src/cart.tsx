@@ -1,24 +1,6 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { CartContext } from "./cartContext";
 import type { CartLine } from "./types";
-
-type CartContextValue = {
-  lines: CartLine[];
-  addItem: (item: { itemId: string; name: string; price: number; stock: number }) => void;
-  setQuantity: (itemId: string, quantity: number) => void;
-  removeLine: (itemId: string) => void;
-  clear: () => void;
-  totalCount: number;
-  totalPrice: number;
-};
-
-const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [lines, setLines] = useState<CartLine[]>([]);
@@ -80,10 +62,4 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
-}
-
-export function useCart() {
-  const ctx = useContext(CartContext);
-  if (!ctx) throw new Error("useCart outside provider");
-  return ctx;
 }

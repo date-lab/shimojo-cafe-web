@@ -2,6 +2,7 @@ import "dotenv/config";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import express from "express";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,7 @@ import {
   listBuyerUsageRollingDays,
   listBuyersForSale,
   listPurchasesPaged,
+  listPurchaseExportRows,
   listBestsellerItemsRollingDays,
   listItemsForSale,
   listItemAnalytics,
@@ -71,11 +73,30 @@ app.use(
   })
 );
 app.use(cookieParser());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "8mb" }));
 app.use(express.static(path.join(__dirname, "..", "..", "client", "public")));
 
 function adminPassword(): string | undefined {
   return process.env.ADMIN_PASSWORD ?? getSetting(db, "admin_password");
+}
+
+const itemImageDir = path.join(__dirname, "..", "..", "client", "public", "images", "items");
+const MAX_ITEM_IMAGE_BYTES = 5 * 1024 * 1024;
+const ITEM_IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/gif": "gif",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+function safeImageName(input: string | undefined): string {
+  const slug = String(input ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return slug || "item-image";
 }
 
 type AlertingItem = {
@@ -324,7 +345,6 @@ app.get("/api/admin/items", requireAdmin, (_req, res) => {
 
 app.get("/api/admin/item-images", requireAdmin, (_req, res) => {
   try {
-    const itemImageDir = path.join(__dirname, "..", "..", "client", "public", "images", "items");
     if (!fs.existsSync(itemImageDir)) {
       res.json({ images: [] });
       return;
@@ -337,6 +357,46 @@ app.get("/api/admin/item-images", requireAdmin, (_req, res) => {
       .sort((a, b) => a.localeCompare(b, "ja"))
       .map((name) => `/images/items/${name}`);
     res.json({ images });
+  } catch {
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
+app.post("/api/admin/item-images", requireAdmin, (req, res) => {
+  const body = req.body as { dataUrl?: string; name?: string };
+  const match = String(body.dataUrl ?? "").match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([a-z0-9+/=]+)$/i);
+  if (!match) {
+    res.status(400).json({ error: "BAD_IMAGE" });
+    return;
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const ext = ITEM_IMAGE_EXTENSIONS[mimeType];
+  if (!ext) {
+    res.status(400).json({ error: "UNSUPPORTED_IMAGE_TYPE" });
+    return;
+  }
+
+  const image = Buffer.from(match[2], "base64");
+  if (image.length === 0 || image.length > MAX_ITEM_IMAGE_BYTES) {
+    res.status(400).json({ error: "IMAGE_TOO_LARGE" });
+    return;
+  }
+
+  try {
+    fs.mkdirSync(itemImageDir, { recursive: true });
+    const fileName = `${safeImageName(body.name)}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${ext}`;
+    const filePath = path.join(itemImageDir, fileName);
+    fs.writeFileSync(filePath, image, { flag: "wx" });
+    const imageUrl = `/images/items/${fileName}`;
+    addAdminOperationLog(db, {
+      action: "UPLOAD_ITEM_IMAGE",
+      targetType: "ITEM_IMAGE",
+      targetId: null,
+      detail: JSON.stringify({ imageUrl, bytes: image.length }),
+      actor: "admin",
+    });
+    res.json({ imageUrl });
   } catch {
     res.status(500).json({ error: "SERVER_ERROR" });
   }
@@ -607,6 +667,10 @@ app.get("/api/admin/purchases", requireAdmin, (req, res) => {
   const purchases = listPurchasesPaged(db, Number.isFinite(limit) ? limit : 20, Number.isFinite(offset) ? offset : 0);
   const total = countPurchases(db);
   res.json({ purchases, total, limit: Math.max(1, Math.min(100, Math.floor(limit))), offset: Math.max(0, Math.floor(offset)) });
+});
+
+app.get("/api/admin/purchases/export", requireAdmin, (_req, res) => {
+  res.json({ rows: listPurchaseExportRows(db) });
 });
 
 app.get("/api/admin/stats", requireAdmin, (req, res) => {

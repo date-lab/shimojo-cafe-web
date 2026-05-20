@@ -729,6 +729,33 @@ export type PurchaseSummary = {
   items: { itemId: string; name: string; quantity: number; unitPrice: number; subtotal: number }[];
 };
 
+export type PurchaseExportRow = {
+  purchaseId: string;
+  purchaseItemId: string | null;
+  purchasedAt: string;
+  totalPrice: number;
+  paymentMethod: string;
+  buyerType: string;
+  buyerId: string | null;
+  buyerCode: string | null;
+  buyerName: string | null;
+  buyerAffiliation: string | null;
+  buyerIsActive: boolean | null;
+  terminalId: string;
+  status: string;
+  itemId: string | null;
+  itemCode: string | null;
+  itemName: string | null;
+  itemCategory: string | null;
+  itemCostPrice: number | null;
+  itemCurrentPrice: number | null;
+  itemStock: number | null;
+  itemIsActive: boolean | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  subtotal: number | null;
+};
+
 export function getPurchase(db: Database.Database, purchaseId: string): PurchaseSummary | null {
   const p = db
     .prepare(
@@ -811,6 +838,52 @@ export function listPurchasesPaged(db: Database.Database, limit: number, offset:
   return rows.map((r) => ({
     ...r,
     items: getItems.all(r.purchaseId) as PurchaseSummary["items"],
+  }));
+}
+
+export function listPurchaseExportRows(db: Database.Database): PurchaseExportRow[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         p.purchase_id as purchaseId,
+         pi.purchase_item_id as purchaseItemId,
+         p.purchased_at as purchasedAt,
+         p.total_price as totalPrice,
+         p.payment_method as paymentMethod,
+         p.buyer_type as buyerType,
+         p.buyer_id as buyerId,
+         b.buyer_code as buyerCode,
+         b.name as buyerName,
+         b.affiliation as buyerAffiliation,
+         b.is_active as buyerIsActive,
+         p.terminal_id as terminalId,
+         p.status as status,
+         pi.item_id as itemId,
+         i.item_code as itemCode,
+         i.name as itemName,
+         i.category as itemCategory,
+         i.cost_price as itemCostPrice,
+         i.price as itemCurrentPrice,
+         i.stock as itemStock,
+         i.is_active as itemIsActive,
+         pi.quantity as quantity,
+         pi.unit_price as unitPrice,
+         pi.subtotal as subtotal
+       FROM purchases p
+       LEFT JOIN buyers b ON p.buyer_id = b.buyer_id
+       LEFT JOIN purchase_items pi ON p.purchase_id = pi.purchase_id
+       LEFT JOIN items i ON pi.item_id = i.item_id
+       ORDER BY p.purchased_at DESC, pi.purchase_item_id ASC`
+    )
+    .all() as Array<Omit<PurchaseExportRow, "buyerIsActive" | "itemIsActive"> & {
+    buyerIsActive: number | null;
+    itemIsActive: number | null;
+  }>;
+
+  return rows.map((r) => ({
+    ...r,
+    buyerIsActive: r.buyerIsActive == null ? null : Boolean(r.buyerIsActive),
+    itemIsActive: r.itemIsActive == null ? null : Boolean(r.itemIsActive),
   }));
 }
 
